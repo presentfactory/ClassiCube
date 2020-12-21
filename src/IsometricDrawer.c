@@ -9,8 +9,7 @@
 
 static float iso_scale;
 static struct VertexTextured* iso_vertices;
-static struct VertexTextured* iso_vertices_base;
-static GfxResourceID iso_vb;
+static int iso_tmp, iso_count;
 
 static cc_bool iso_cacheInited;
 static PackedCol iso_col = PACKEDCOL_WHITE;
@@ -22,8 +21,8 @@ static PackedCol iso_colXSide, iso_colZSide, iso_colYBottom;
 #define iso_sinY (-0.70710678118654752f) /* sin(-45 * MATH_DEG2RAD) */
 
 static struct Matrix iso_transform;
+static cc_uint16* iso_texIndices;
 static Vec3 iso_pos;
-static int iso_lastTexIndex, iso_texIndex;
 
 static void IsometricDrawer_RotateX(float cosA, float sinA) {
 	float y   = cosA  * iso_pos.Y + sinA * iso_pos.Z;
@@ -49,35 +48,21 @@ static void IsometricDrawer_InitCache(void) {
 	Matrix_Mul(&iso_transform, &rotY, &rotX);
 }
 
-static void IsometricDrawer_Flush(void) {
-	int count;
-	if (iso_lastTexIndex != -1) {
-		Gfx_BindTexture(Atlas1D.TexIds[iso_lastTexIndex]);
-		count = (int)(iso_vertices - iso_vertices_base);
-		Gfx_UpdateDynamicVb_IndexedTris(iso_vb, iso_vertices_base, count);
-	}
-
-	iso_lastTexIndex = iso_texIndex;
-	iso_vertices     = iso_vertices_base;
-}
-
-static TextureLoc IsometricDrawer_GetTexLoc(BlockID block, Face face) {
-	TextureLoc loc = Block_Tex(block, face);
-	iso_texIndex   = Atlas1D_Index(loc);
-
-	if (iso_lastTexIndex != iso_texIndex) IsometricDrawer_Flush();
+static TextureLoc GetTexLoc(BlockID block, Face face) {
+	TextureLoc loc    = Block_Tex(block, face);
+	*iso_texIndices++ = Atlas1D_Index(loc);
+	iso_count++;
 	return loc;
 }
 
-static void IsometricDrawer_SpriteZQuad(BlockID block, cc_bool firstPart) {
-	TextureLoc loc = Block_Tex(block, FACE_XMAX);
-	TextureRec rec = Atlas1D_TexRec(loc, 1, &iso_texIndex);
+static void DrawSpriteZQuad(BlockID block, cc_bool firstPart) {
+	TextureLoc loc = GetTexLoc(block, FACE_ZMAX);
+	TextureRec rec = Atlas1D_TexRec(loc, 1, &iso_tmp);
 
 	struct VertexTextured v;
 	float minX, maxX, minY, maxY;
 	float x1, x2;
 
-	if (iso_lastTexIndex != iso_texIndex) IsometricDrawer_Flush();
 	v.Col = iso_col;
 	Block_Tint(v.Col, block);
 
@@ -98,15 +83,14 @@ static void IsometricDrawer_SpriteZQuad(BlockID block, cc_bool firstPart) {
 	            v.Y = minY;               v.V = rec.V2; *iso_vertices++ = v;
 }
 
-static void IsometricDrawer_SpriteXQuad(BlockID block, cc_bool firstPart) {
-	TextureLoc loc = Block_Tex(block, FACE_XMAX);
-	TextureRec rec = Atlas1D_TexRec(loc, 1, &iso_texIndex);
+static void DrawSpriteXQuad(BlockID block, cc_bool firstPart) {
+	TextureLoc loc = GetTexLoc(block, FACE_XMAX);
+	TextureRec rec = Atlas1D_TexRec(loc, 1, &iso_tmp);
 	
 	struct VertexTextured v;
 	float minY, maxY, minZ, maxZ;
 	float z1, z2;
 
-	if (iso_lastTexIndex != iso_texIndex) IsometricDrawer_Flush();
 	v.Col = iso_col;
 	Block_Tint(v.Col, block);
 
@@ -127,17 +111,14 @@ static void IsometricDrawer_SpriteXQuad(BlockID block, cc_bool firstPart) {
 	v.Y = minY;                           v.V = rec.V2; *iso_vertices++ = v;
 }
 
-void IsometricDrawer_BeginBatch(struct VertexTextured* vertices, GfxResourceID vb) {
+void IsometricDrawer_Begin(struct VertexTextured* vertices, cc_uint16* texIndices) {
+	iso_count      = 0;
+	iso_vertices   = vertices;
+	iso_texIndices = texIndices;
 	IsometricDrawer_InitCache();
-	iso_lastTexIndex = -1;
-	iso_vertices = vertices;
-	iso_vertices_base = vertices;
-	iso_vb = vb;
-
-	Gfx_LoadMatrix(MATRIX_VIEW, &iso_transform);
 }
 
-void IsometricDrawer_DrawBatch(BlockID block, float size, float x, float y) {
+void IsometricDrawer_Draw(BlockID block, float size, float x, float y) {
 	cc_bool bright = Blocks.FullBright[block];
 	Vec3 min, max;
 	if (Blocks.Draw[block] == DRAW_GAS) return;
@@ -155,11 +136,11 @@ void IsometricDrawer_DrawBatch(BlockID block, float size, float x, float y) {
 	iso_pos.X -= 0.5f; iso_pos.Y -= 0.5f;
 
 	if (Blocks.Draw[block] == DRAW_SPRITE) {
-		IsometricDrawer_SpriteXQuad(block, true);
-		IsometricDrawer_SpriteZQuad(block, true);
+		DrawSpriteXQuad(block, true);
+		DrawSpriteZQuad(block, true);
 
-		IsometricDrawer_SpriteZQuad(block, false);
-		IsometricDrawer_SpriteXQuad(block, false);
+		DrawSpriteZQuad(block, false);
+		DrawSpriteXQuad(block, false);
 	} else {
 		Drawer.MinBB = Blocks.MinBB[block]; Drawer.MinBB.Y = 1.0f - Drawer.MinBB.Y;
 		Drawer.MaxBB = Blocks.MaxBB[block]; Drawer.MaxBB.Y = 1.0f - Drawer.MaxBB.Y;
@@ -176,41 +157,28 @@ void IsometricDrawer_DrawBatch(BlockID block, float size, float x, float y) {
 		Drawer.TintCol = Blocks.FogCol[block];
 
 		Drawer_XMax(1, bright ? iso_col : iso_colXSide, 
-			IsometricDrawer_GetTexLoc(block, FACE_XMAX), &iso_vertices);
+			GetTexLoc(block, FACE_XMAX), &iso_vertices);
 		Drawer_ZMin(1, bright ? iso_col : iso_colZSide, 
-			IsometricDrawer_GetTexLoc(block, FACE_ZMIN), &iso_vertices);
+			GetTexLoc(block, FACE_ZMIN), &iso_vertices);
 		Drawer_YMax(1, iso_col, 
-			IsometricDrawer_GetTexLoc(block, FACE_YMAX), &iso_vertices);
+			GetTexLoc(block, FACE_YMAX), &iso_vertices);
 	}
 }
+int IsometricDrawer_End(void) { return iso_count; }
 
-void IsometricDrawer_EndBatch(void) {
-	if (iso_vertices != iso_vertices_base) { 
-		iso_lastTexIndex = iso_texIndex; 
-		IsometricDrawer_Flush(); 
-	}
-
-	iso_lastTexIndex = -1;
-	Gfx_LoadIdentityMatrix(MATRIX_VIEW);
-}
-
-void IsometricDrawer_Render(int numFaces, cc_uint8* vertCounts, int* texIndices) {
-	int lastTexIndex = texIndices[0];
+void IsometricDrawer_Render(int numFaces, const cc_uint16* texIndices) {
+	int lastIndex = texIndices[0];
 	int i, offset = 0, count = 0;
-
-	IsometricDrawer_InitCache();
 	Gfx_LoadMatrix(MATRIX_VIEW, &iso_transform);
 
-	for (i = 0; i < numFaces; i++) {
+	for (i = 0; i < numFaces; i++, count += 4) {
 		/* Combine into one bulk draw call if possible */
-		if (texIndices[i] == lastTexIndex) { 
-			count += vertCounts[i]; continue;
-		}
+		if (texIndices[i] == lastIndex) continue;
 
 		/* Different 1D atlas - flush current vertices */
-		Gfx_BindTexture(Atlas1D.TexIds[lastTexIndex]);
+		Gfx_BindTexture(Atlas1D.TexIds[lastIndex]);
 		Gfx_DrawVb_IndexedTris_Range(count, offset);
-		lastTexIndex = texIndices[i];
+		lastIndex = texIndices[i];
 			
 		offset += count;
 		count   = 0;
@@ -218,7 +186,7 @@ void IsometricDrawer_Render(int numFaces, cc_uint8* vertCounts, int* texIndices)
 
 	/* Handle leftover vertices */
 	if (count) {
-		Gfx_BindTexture(Atlas1D.TexIds[lastTexIndex]);
+		Gfx_BindTexture(Atlas1D.TexIds[lastIndex]);
 		Gfx_DrawVb_IndexedTris_Range(count, offset);
 	}
 	Gfx_LoadIdentityMatrix(MATRIX_VIEW);

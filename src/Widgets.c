@@ -407,11 +407,14 @@ static void HotbarWidget_RenderHotbarOutline(struct HotbarWidget* w) {
 
 static void HotbarWidget_RenderHotbarBlocks(struct HotbarWidget* w) {
 	/* TODO: Should hotbar use its own VB? */
-	struct VertexTextured vertices[INVENTORY_BLOCKS_PER_HOTBAR * ISOMETRICDRAWER_MAXVERTICES];
+	cc_uint16 texIndices[INVENTORY_BLOCKS_PER_HOTBAR * ISOMETRICDRAWER_MAXFACES];
+	struct VertexTextured* vertices;
+	int numFaces, i, x, y;
 	float scale;
-	int i, x, y;
 
-	IsometricDrawer_BeginBatch(vertices, Models.Vb);
+	vertices = (struct VertexTextured*)Gfx_LockDynamicVb(Models.Vb, VERTEX_FORMAT_TEXTURED,
+												INVENTORY_BLOCKS_PER_HOTBAR * ISOMETRICDRAWER_MAXVERTICES);
+	IsometricDrawer_Begin(vertices, texIndices);
 	scale = w->elemSize / 2.0f;
 
 	for (i = 0; i < INVENTORY_BLOCKS_PER_HOTBAR; i++) {
@@ -421,9 +424,12 @@ static void HotbarWidget_RenderHotbarBlocks(struct HotbarWidget* w) {
 #ifdef CC_BUILD_TOUCH
 		if (i == HOTBAR_MAX_INDEX && Input_TouchMode) continue;
 #endif
-		IsometricDrawer_DrawBatch(Inventory_Get(i), scale, x, y);
+		IsometricDrawer_Draw(Inventory_Get(i), scale, x, y);
 	}
-	IsometricDrawer_EndBatch();
+
+	numFaces = IsometricDrawer_End();
+	Gfx_UnlockDynamicVb(Models.Vb);
+	IsometricDrawer_Render(numFaces, texIndices);
 }
 
 static int HotbarWidget_ScrolledIndex(struct HotbarWidget* w, float delta, int index, int dir) {
@@ -589,8 +595,8 @@ static int Table_Width(struct TableWidget* w) {
 static int Table_Height(struct TableWidget* w) {
 	return w->rowsVisible  * w->cellSizeY + w->paddingTopY + w->paddingMaxY;
 }
-
-#define TABLE_MAX_VERTICES (8 * 10 * ISOMETRICDRAWER_MAXVERTICES)
+#define TABLE_MAX_BLOCKS (8 * 10)
+#define TABLE_MAX_VERTICES (TABLE_MAX_BLOCKS * ISOMETRICDRAWER_MAXVERTICES)
 
 static cc_bool TableWidget_GetCoords(struct TableWidget* w, int i, int* cellX, int* cellY) {
 	int x, y;
@@ -688,10 +694,11 @@ void TableWidget_RecreateBlocks(struct TableWidget* w) {
 
 static void TableWidget_Render(void* widget, double delta) {
 	struct TableWidget* w = (struct TableWidget*)widget;
-	struct VertexTextured vertices[TABLE_MAX_VERTICES];
+	cc_uint16 texIndices[TABLE_MAX_BLOCKS * ISOMETRICDRAWER_MAXFACES];
+	struct VertexTextured* vertices;
 	int cellSizeX, cellSizeY, size;
+	int numFaces, rows, i, x, y;
 	float off;
-	int i, x, y;
 
 	/* These were sourced by taking a screenshot of vanilla */
 	/* Then using paint to extract the colour components */
@@ -722,14 +729,18 @@ static void TableWidget_Render(void* widget, double delta) {
 	Gfx_SetTexturing(true);
 	Gfx_SetVertexFormat(VERTEX_FORMAT_TEXTURED);
 
-	IsometricDrawer_BeginBatch(vertices, w->vb);
+	rows = min(w->rowsVisible, w->rowsTotal);
+	vertices = (struct VertexTextured*)Gfx_LockDynamicVb(w->vb, VERTEX_FORMAT_TEXTURED,
+											rows * 10 * ISOMETRICDRAWER_MAXVERTICES);
+	IsometricDrawer_Begin(vertices, texIndices);
+
 	for (i = 0; i < w->blocksCount; i++) {
 		if (!TableWidget_GetCoords(w, i, &x, &y)) continue;
 
 		/* We want to always draw the selected block on top of others */
 		/* TODO: Need two size arguments, in case X/Y dpi differs */
 		if (i == w->selectedIndex) continue;
-		IsometricDrawer_DrawBatch(w->blocks[i], cellSizeX * 0.7f / 2.0f,
+		IsometricDrawer_Draw(w->blocks[i], cellSizeX * 0.7f / 2.0f,
 			x + cellSizeX / 2, y + cellSizeY / 2);
 	}
 
@@ -737,11 +748,14 @@ static void TableWidget_Render(void* widget, double delta) {
 	if (i != -1) {
 		TableWidget_GetCoords(w, i, &x, &y);
 
-		IsometricDrawer_DrawBatch(w->blocks[i],
+		IsometricDrawer_Draw(w->blocks[i],
 			(cellSizeX + w->selBlockExpand) * 0.7f / 2.0f,
 			x + cellSizeX / 2, y + cellSizeY / 2);
 	}
-	IsometricDrawer_EndBatch();
+
+	numFaces = IsometricDrawer_End();
+	Gfx_UnlockDynamicVb(w->vb);
+	IsometricDrawer_Render(numFaces, texIndices);
 
 	if (w->descTex.ID) { Texture_Render(&w->descTex); }
 	Gfx_SetTexturing(false);
