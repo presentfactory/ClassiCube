@@ -575,6 +575,7 @@ static void TabListOverlay_SortEntries(struct TabListOverlay* s) {
 static void TabListOverlay_SortAndLayout(struct TabListOverlay* s) {
 	TabListOverlay_SortEntries(s);
 	TabListOverlay_Layout(s);
+	s->dirty = true;
 }
 
 static void TabListOverlay_Add(void* obj, int id) {
@@ -649,6 +650,7 @@ static void TabListOverlay_ContextLost(void* screen) {
 
 	Elem_Free(&s->title);
 	Font_Free(&s->font);
+	Screen_ContextLost(screen);
 }
 
 static void TabListOverlay_ContextRecreated(void* screen) {
@@ -661,6 +663,7 @@ static void TabListOverlay_ContextRecreated(void* screen) {
 
 	TextWidget_SetConst(&s->title, "Connected players:", &s->font);
 	Font_SetPadding(&s->font, 1);
+	Screen_UpdateVb(screen);
 
 	/* TODO: Just recreate instead of this? maybe */
 	for (id = 0; id < TABLIST_MAX_NAMES; id++) {
@@ -670,14 +673,32 @@ static void TabListOverlay_ContextRecreated(void* screen) {
 	TabListOverlay_SortAndLayout(s); /* TODO: Not do layout here too */
 }
 
-static void TabListOverlay_BuildMesh(void* screen) { }
+static void TabListOverlay_BuildMesh(void* screen) {
+	struct TabListOverlay* s = (struct TabListOverlay*)screen;
+	struct Screen*   grabbed = Gui_GetInputGrab();
+	struct VertexTextured* v;
+	struct Texture tex;
+	int i;
+	
+	v = (struct VertexTextured*)Gfx_LockDynamicVb(s->vb,
+										VERTEX_FORMAT_TEXTURED, TEXTWIDGET_MAX + s->namesCount * 4);
+	Widget_BuildMesh(&s->title, &v);
+
+	for (i = 0; i < s->namesCount; i++) {
+		if (!s->textures[i].ID) continue;
+		tex = s->textures[i];
+
+		if (grabbed && s->ids[i] != GROUP_NAME_ID) {
+			if (Gui_ContainsPointers(tex.X, tex.Y, tex.Width, tex.Height)) tex.X += 4;
+		}
+		Gfx_Make2DQuad(&tex, PACKEDCOL_WHITE, &v);
+	}
+	Gfx_UnlockDynamicVb(s->vb);
+}
 
 static void TabListOverlay_Render(void* screen, double delta) {
 	struct TabListOverlay* s = (struct TabListOverlay*)screen;
-	struct TextWidget* title = &s->title;
-	struct Screen* grabbed;
-	struct Texture tex;
-	int i;
+	int i, offset = 0;
 	PackedCol topCol    = PackedCol_Make( 0,  0,  0, 180);
 	PackedCol bottomCol = PackedCol_Make(50, 50, 50, 205);
 
@@ -686,17 +707,16 @@ static void TabListOverlay_Render(void* screen, double delta) {
 	Gfx_Draw2DGradient(s->x, s->y, s->width, s->height, topCol, bottomCol);
 
 	Gfx_SetTexturing(true);
-	Elem_Render(title, delta);
-	grabbed = Gui_GetInputGrab();
+	Gfx_SetVertexFormat(VERTEX_FORMAT_TEXTURED);
+	Gfx_BindDynamicVb(s->vb);
+	offset = Widget_Render2(&s->title, offset);
 
 	for (i = 0; i < s->namesCount; i++) {
 		if (!s->textures[i].ID) continue;
-		tex = s->textures[i];
-		
-		if (grabbed && s->ids[i] != GROUP_NAME_ID) {
-			if (Gui_ContainsPointers(tex.X, tex.Y, tex.Width, tex.Height)) tex.X += 4;
-		}
-		Texture_Render(&tex);
+		Gfx_BindTexture(s->textures[i].ID);
+
+		Gfx_DrawVb_IndexedTris_Range(4, offset);
+		offset += 4;
 	}
 	Gfx_SetTexturing(false);
 
@@ -718,6 +738,7 @@ static void TabListOverlay_Init(void* screen) {
 	s->active        = true;
 	s->classic       = Gui.ClassicTabList || !Server.SupportsExtPlayerList;
 	s->elementOffset = s->classic ? 0 : 10;
+	s->maxVertices   = TABLIST_MAX_VERTICES;
 	TextWidget_Init(&s->title);
 
 	Event_Register_(&TabListEvents.Added,   s, TabListOverlay_Add);
