@@ -427,16 +427,19 @@ EMSCRIPTEN_KEEPALIVE void Platform_LogError(const char* msg) {
 	Logger_WarnFunc(&str);
 }
 
+extern void interop_InitIndexedDB();
+extern void interop_PreloadIndexedDB();
 extern void interop_InitModule(void);
 void Platform_Init(void) {
-	interop_InitModule();
-	interop_InitFilesystem();
-	interop_InitSockets();
-	
 	/* NOTE: You must pre-load IndexedDB before main() */
-	/* (because pre-loading only works asynchronously) */
+	/*  (because pre-loading works asynchronously) */
 	/* If you don't, you'll get errors later trying to sync local to remote */
 	/* See doc/hosting-webclient.md for example preloading IndexedDB code */
+	interop_InitIndexedDB();
+	interop_PreloadIndexedDB();
+
+	interop_InitModule();
+	interop_InitSockets();
 }
 void Platform_Free(void) { }
 

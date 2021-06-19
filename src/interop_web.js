@@ -130,9 +130,88 @@ mergeInto(LibraryManager.library, {
 //########################################################################################################################
 //--------------------------------------------------------Filesystem------------------------------------------------------
 //########################################################################################################################
-  interop_InitFilesystem: function(buffer) {
-    // if interop_SaveNode is directly defined as a function, it is wrongly optimised 
-    // out when compilingas the function is not directly referenced by any C code	
+  interop_InitIndexedDB: function() {
+    if (Module.DB_STORE_NAME) return; // already initialised
+    Module.DB_STORE_NAME = "FILE_DATA";
+    Module.DB_VERSION    = 21;
+    
+    Module.idb_getDB = function(callback) {
+      // check the cache first
+      var db = Module.idb;
+      if (db) return callback(null, db);
+      var req;
+      
+      try {
+        var idb = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
+        assert(idb, 'IDBFS used, but indexedDB not supported');
+        req = idb.open('/classicube', Module.DB_VERSION);
+      } catch (e) {
+        return callback(e);
+      }
+      if (!req) return callback("Unable to connect to IndexedDB");
+
+      req.onupgradeneeded = function(e) {
+        var db = e.target.result;
+        var transaction = e.target.transaction; 
+        var fileStore;
+  
+        if (db.objectStoreNames.contains(Module.DB_STORE_NAME)) {
+          fileStore = transaction.objectStore(Module.DB_STORE_NAME);
+        } else {
+          fileStore = db.createObjectStore(Module.DB_STORE_NAME);
+        }
+  
+        if (!fileStore.indexNames.contains('timestamp')) {
+          fileStore.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+      };
+      req.onsuccess = function() {
+        Module.idb = req.result; // cache it
+        callback(null, req.result);
+      };
+      req.onerror = function(e) {
+        callback(this.error);
+        e.preventDefault();
+      };
+    };
+    
+    Module.idb_storeLocalEntry = function (path, entry, callback) {
+      try {
+        if (FS.isDir(entry.mode)) {
+          FS.mkdir(path, entry.mode);
+        } else if (FS.isFile(entry.mode)) {
+          FS.writeFile(path, entry.contents, { canOwn: true });
+        } else {
+          return callback(new Error('node type not supported'));
+        }
+  
+        FS.chmod(path, entry.mode);
+        FS.utime(path, entry.timestamp, entry.timestamp);
+      } catch (e) {
+        return callback(e);
+      }
+  
+      callback(null);
+    };
+    
+    Module.idb_loadRemoteEntry = function (store, path, callback) {
+      var req = store.get(path);
+      req.onsuccess = function(event) { callback(null, event.target.result); };
+      req.onerror = function(e) {
+        callback(this.error);
+        e.preventDefault();
+      };
+    };
+    
+    Module.idb_storeRemoteEntry = function (store, path, entry, callback) {
+      var req = store.put(entry, path);
+      req.onsuccess = function() { callback(null); };
+      req.onerror = function(e) {
+        callback(this.error);
+        e.preventDefault();
+      };
+    };
+    
     Module.saveNode = function(path) {
       var callback = function(err) { 
         if (!err) return;
@@ -160,28 +239,95 @@ mergeInto(LibraryManager.library, {
         entry = { timestamp: stat.mtime, mode: stat.mode, contents: node.contents };
       }
       
-      IDBFS.getDB('/classicube', function(err, db) {
+      Module.idb_getDB(function(err, db) {
         if (err) return callback(err);
-        var transaction = db.transaction([IDBFS.DB_STORE_NAME], 'readwrite');
-        var store = transaction.objectStore(IDBFS.DB_STORE_NAME);
+        var transaction = db.transaction([Module.DB_STORE_NAME], 'readwrite');
+        var store = transaction.objectStore(Module.DB_STORE_NAME);
         
         transaction.onerror = function(e) {
           callback(this.error);
           e.preventDefault();
         };
+        Module.idb_storeRemoteEntry(store, path, entry, callback);
+      });
+    };
+  },
+  interop_PreloadIndexedDB: function() {
+    if (Module.idb_getRemoteSet) return; // already preloaded
+    
+    Module.idb_getRemoteSet = function (callback) {
+      var entries = {};
+  
+      Module.idb_getDB(function(err, db) {
+        if (err) return callback(err);
+  
+        try {
+          var transaction = db.transaction([Module.DB_STORE_NAME], 'readonly');
+          transaction.onerror = function(e) {
+            callback(this.error);
+            e.preventDefault();
+          };
+  
+          var store = transaction.objectStore(Module.DB_STORE_NAME);
+          var index = store.index('timestamp');
+  
+          index.openKeyCursor().onsuccess = function(event) {
+            var cursor = event.target.result;
+            if (!cursor) return callback(null, db, entries);
+  
+            entries[cursor.primaryKey] = { timestamp: cursor.key }; 
+            cursor.continue();
+          };
+        } catch (e) {
+          return callback(e);
+        }
+      });
+    };
+    
+    Module.idb_preload = function(callback) {
+      Module.idb_getRemoteSet(function(err, db, entries) {
+        if (err) return callback(err);
+
+        var create = [];
+        Object.keys(entries).forEach(function (key) { create.push(key); });
+
+        var total = create.length;		
+        if (!total) return callback(null);
         
-        var req = store.put(entry, path);
-        req.onsuccess = function()  { callback(null); };
-        req.onerror   = function(e) {
-          callback(this.error);
+        var completed = 0;
+        var transaction = db.transaction([Module.DB_STORE_NAME], 'readwrite');
+        var store = transaction.objectStore(Module.DB_STORE_NAME);
+        
+        function done(err) {
+          if (err) return callback(err);
+          if (++completed >= total) return callback(null);
+        };
+        
+        transaction.onerror = function(e) {
+          done(this.error);
           e.preventDefault();
         };
+        
+        // sort paths in ascending order so directory entries are created
+        // before the files inside them
+        create.sort().forEach(function (path) {
+          Module.idb_loadRemoteEntry(store, path, function (err, entry) {
+            if (err) return done(err);
+            Module.idb_storeLocalEntry(path, entry, done);
+          });
+        });
       });
     };
 
-    if (!window.cc_idbErr) return;
-    var msg = 'Error preloading IndexedDB:' + window.cc_idbErr + '\n\nPreviously saved settings/maps will be lost';
-    ccall('Platform_LogError', 'void', ['string'], [msg]);
+    addRunDependency('load-idb');
+    FS.mkdir('/classicube');
+    Module.idb_preload(function(err) {
+      removeRunDependency('load-idb');
+      if (!err) return;
+
+      var msg = 'Error preloading IndexedDB:' + err + '\n\nPreviously saved settings/maps will be lost';
+      ccall('Platform_LogError', 'void', ['string'], [msg]);
+    });
   },
   interop_DirectorySetWorking: function (raw) {
     var path = UTF8ToString(raw);
