@@ -128,7 +128,7 @@ mergeInto(LibraryManager.library, {
 
 
 //########################################################################################################################
-//--------------------------------------------------------Filesystem------------------------------------------------------
+//--------------------------------------------------------IndexedDB------------------------------------------------------
 //########################################################################################################################
   interop_InitIndexedDB: function() {
     if (Module.DB_STORE_NAME) return; // already initialised
@@ -176,9 +176,10 @@ mergeInto(LibraryManager.library, {
     };
     
     Module.idb_storeLocalEntry = function (path, entry, callback) {
+      path = path.replace('/classicube', ''); // IndexedDB paths have /classicube prefix, remove that
       try {
         if (FS.isDir(entry.mode)) {
-          FS.mkdir(path, entry.mode);
+          FS.mkdirTree(path, entry.mode);
         } else if (FS.isFile(entry.mode)) {
           FS.writeFile(path, entry.contents, { canOwn: true });
         } else {
@@ -204,6 +205,7 @@ mergeInto(LibraryManager.library, {
     };
     
     Module.idb_storeRemoteEntry = function (store, path, entry, callback) {
+      path = '/classicube' + path; // IndexedDB paths have /classicube prefix, add that
       var req = store.put(entry, path);
       req.onsuccess = function() { callback(null); };
       req.onerror = function(e) {
@@ -291,7 +293,7 @@ mergeInto(LibraryManager.library, {
         var create = [];
         Object.keys(entries).forEach(function (key) { create.push(key); });
 
-        var total = create.length;		
+        var total = create.length;
         if (!total) return callback(null);
         
         var completed = 0;
@@ -320,7 +322,6 @@ mergeInto(LibraryManager.library, {
     };
 
     addRunDependency('load-idb');
-    FS.mkdir('/classicube');
     Module.idb_preload(function(err) {
       removeRunDependency('load-idb');
       if (!err) return;
@@ -329,16 +330,9 @@ mergeInto(LibraryManager.library, {
       ccall('Platform_LogError', 'void', ['string'], [msg]);
     });
   },
-  interop_DirectorySetWorking: function (raw) {
-    var path = UTF8ToString(raw);
-    try {
-      FS.chdir(path);
-      return 0;
-    } catch (e) {
-      if (typeof FS === 'undefined' || !(e instanceof FS.ErrnoError)) abort(e);
-      return -e.errno;
-    }
-  },
+//########################################################################################################################
+//--------------------------------------------------------Filesystem------------------------------------------------------
+//########################################################################################################################
   interop_DirectoryCreate: function(raw, mode) {
     var path = UTF8ToString(raw);
     try {

@@ -463,9 +463,5 @@ int Platform_GetCommandLineArgs(int argc, STRING_REF char** argv, cc_string* arg
 	return count;
 }
 
-extern int interop_DirectorySetWorking(const char* path);
-cc_result Platform_SetDefaultCurrentDirectory(int argc, char **argv) {
-	/* returned result is negative for error */
-	return -interop_DirectorySetWorking("/classicube");
-}
+cc_result Platform_SetDefaultCurrentDirectory(int argc, char **argv) { return 0; }
 #endif
