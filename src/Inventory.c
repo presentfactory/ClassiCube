@@ -6,6 +6,8 @@
 #include "Chat.h"
 
 struct _InventoryData Inventory;
+static int inventory_size;
+static cc_uint8* inventory_default;
 
 cc_bool Inventory_CheckChangeSelected(void) {
 	if (!Inventory.CanChangeSelected) {
@@ -84,7 +86,13 @@ void Inventory_PickBlock(BlockID block) {
 	Inventory_SetSelectedBlock(block);
 }
 
-static const cc_uint8 classicInventory[42] = {
+static const cc_uint8 v6_inventory[32] = {
+	BLOCK_STONE, BLOCK_COBBLE, BLOCK_DIRT, BLOCK_WOOD, BLOCK_LOG, BLOCK_LEAVES, BLOCK_SAPLING, BLOCK_DANDELION,
+	BLOCK_ROSE, BLOCK_BROWN_SHROOM, BLOCK_RED_SHROOM, BLOCK_SAND, BLOCK_GRAVEL, BLOCK_GLASS, BLOCK_SPONGE, BLOCK_GOLD,
+	BLOCK_RED, BLOCK_ORANGE, BLOCK_YELLOW, BLOCK_LIME, BLOCK_GREEN, BLOCK_TEAL, BLOCK_AQUA, BLOCK_CYAN, BLOCK_BLUE,
+	BLOCK_INDIGO, BLOCK_VIOLET, BLOCK_MAGENTA, BLOCK_PINK, BLOCK_BLACK, BLOCK_GRAY, BLOCK_WHITE,
+};
+static const cc_uint8 v7_inventory[42] = {
 	BLOCK_STONE, BLOCK_COBBLE, BLOCK_BRICK, BLOCK_DIRT, BLOCK_WOOD, BLOCK_LOG, BLOCK_LEAVES, BLOCK_GLASS, BLOCK_SLAB,
 	BLOCK_MOSSY_ROCKS, BLOCK_SAPLING, BLOCK_DANDELION, BLOCK_ROSE, BLOCK_BROWN_SHROOM, BLOCK_RED_SHROOM, BLOCK_SAND, BLOCK_GRAVEL, BLOCK_SPONGE,
 	BLOCK_RED, BLOCK_ORANGE, BLOCK_YELLOW, BLOCK_LIME, BLOCK_GREEN, BLOCK_TEAL, BLOCK_AQUA, BLOCK_CYAN, BLOCK_BLUE,
@@ -92,10 +100,17 @@ static const cc_uint8 classicInventory[42] = {
 	BLOCK_GOLD_ORE, BLOCK_IRON, BLOCK_GOLD, BLOCK_BOOKSHELF, BLOCK_TNT, BLOCK_OBSIDIAN,
 };
 
+static const cc_uint8 v6_hotbar[INVENTORY_BLOCKS_PER_HOTBAR] = {
+	BLOCK_STONE, BLOCK_COBBLE, BLOCK_DIRT, BLOCK_WOOD, BLOCK_LOG, BLOCK_LEAVES, BLOCK_SAPLING, BLOCK_DANDELION, BLOCK_ROSE
+};
+static const cc_uint8 v7_hotbar[INVENTORY_BLOCKS_PER_HOTBAR] = {
+	BLOCK_STONE, BLOCK_COBBLE, BLOCK_BRICK, BLOCK_DIRT, BLOCK_WOOD, BLOCK_LOG, BLOCK_LEAVES, BLOCK_GLASS, BLOCK_SLAB
+};
+
 /* Returns default block that should go in the given inventory slot */
 static BlockID DefaultMapping(int slot) {
 	if (Game_ClassicMode) {
-		if (slot < 9 * 4 + 6) return classicInventory[slot];
+		if (slot < inventory_size) return inventory_default[slot];
 	}else if (slot < BLOCK_MAX_CPE) {
 		return (BlockID)(slot + 1);
 	}
@@ -139,13 +154,26 @@ static void OnReset(void) {
 }
 
 static void OnInit(void) {
-	BlockID* inv = Inventory.Table;
-	OnReset();
-	Inventory.BlocksPerRow = Game_ClassicMode ? 9 : 10;
+	cc_uint8* hotbar;
+	int i;
+
+	/* TODO maybe refactor to struct instead of using if/else */
+	if (Game_Version.Protocol == 6) {
+		hotbar            = v6_hotbar;
+		inventory_size    = Array_Elems(v6_inventory);
+		inventory_default = v6_inventory;
+		Inventory.BlocksPerRow = 8;
+	} else {
+		hotbar            = v7_hotbar;
+		inventory_size    = Array_Elems(v7_inventory);
+		inventory_default = v7_inventory;
+		Inventory.BlocksPerRow = Game_ClassicMode ? 9 : 10;
+	}
 	
-	inv[0] = BLOCK_STONE;  inv[1] = BLOCK_COBBLE; inv[2] = BLOCK_BRICK;
-	inv[3] = BLOCK_DIRT;   inv[4] = BLOCK_WOOD;   inv[5] = BLOCK_LOG;
-	inv[6] = BLOCK_LEAVES; inv[7] = BLOCK_GLASS;  inv[8] = BLOCK_SLAB;
+	for (i = 0; i < INVENTORY_BLOCKS_PER_HOTBAR; i++) {
+		Inventory.Table[i] = hotbar[i];
+	}
+	OnReset();
 }
 
 struct IGameComponent Inventory_Component = {

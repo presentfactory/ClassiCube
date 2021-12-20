@@ -54,6 +54,7 @@
 
 #define OPT_LANDSCAPE_MODE "landscape-mode"
 #define OPT_CLASSIC_MODE "mode-classic"
+#define OPT_GAME_VERSION "game-version"
 #define OPT_CUSTOM_BLOCKS "nostalgia-customblocks"
 #define OPT_CPE "nostalgia-usecpe"
 #define OPT_SERVER_TEXTURES "nostalgia-servertextures"

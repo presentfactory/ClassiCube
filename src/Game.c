@@ -59,6 +59,10 @@ static char mppassBuffer[STRING_SIZE];
 cc_string Game_Username = String_FromArray(usernameBuffer);
 cc_string Game_Mppass   = String_FromArray(mppassBuffer);
 
+struct GameVersion Game_Version;
+static const struct GameVersion version6 = { "0.0.23a_01", 6 };
+static const struct GameVersion version7 = { "0.30",       7 };
+
 const char* const FpsLimit_Names[FPS_LIMIT_COUNT] = {
 	"LimitVSync", "Limit30FPS", "Limit60FPS", "Limit120FPS", "Limit144FPS", "LimitNone",
 };
@@ -300,6 +304,11 @@ static void LoadOptions(void) {
 	}*/
 }
 
+static void LoadVersion(void) {
+	int version  = Options_GetInt(OPT_GAME_VERSION, 6, 7, 7);
+	Game_Version = version == 6 ? version6 : version7;
+}
+
 #ifdef CC_BUILD_MINFILES
 static void LoadPlugins(void) { }
 #else
@@ -353,6 +362,7 @@ static void Game_Load(void) {
 	Gfx_Create();
 	Logger_WarnFunc = Game_WarnFunc;
 	LoadOptions();
+	LoadVersion();
 	Utils_EnsureDirectory("maps");
 
 	Event_Register_(&WorldEvents.NewMap,        NULL, HandleOnNewMap);

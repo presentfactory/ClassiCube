@@ -370,7 +370,7 @@ void Classic_SendLogin(void) {
 	cc_uint8 data[131];
 	data[0] = OPCODE_HANDSHAKE;
 	{
-		data[1] = 7; /* protocol version */
+		data[1] = Game_Version.Protocol;
 		WriteString(&data[2],  &Game_Username);
 		WriteString(&data[66], &Game_Mppass);
 		data[130] = Game_UseCPE ? 0x42 : 0x00;
