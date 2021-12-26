@@ -720,7 +720,7 @@ static cc_bool TableWidget_RowEmpty(struct TableWidget* w, int start) {
 }
 
 void TableWidget_RecreateBlocks(struct TableWidget* w) {
-	int i, max = Game_UseCPEBlocks ? BLOCK_COUNT : BLOCK_ORIGINAL_COUNT;
+	int i, max = Game_UseCPEBlocks ? BLOCK_MAX_DEFINED : BLOCK_MAX_0030;
 	BlockID block;
 	w->blocksCount = 0;
 
@@ -730,7 +730,7 @@ void TableWidget_RecreateBlocks(struct TableWidget* w) {
 		}
 
 		block = Inventory.Map[i];
-		if (block < max) { w->blocks[w->blocksCount++] = block; }
+		if (block <= max) { w->blocks[w->blocksCount++] = block; }
 		i++;
 	}
 

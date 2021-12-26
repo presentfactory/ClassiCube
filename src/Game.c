@@ -60,8 +60,9 @@ cc_string Game_Username = String_FromArray(usernameBuffer);
 cc_string Game_Mppass   = String_FromArray(mppassBuffer);
 
 struct GameVersion Game_Version;
-static const struct GameVersion version6 = { "0.0.23a_01", 6 };
-static const struct GameVersion version7 = { "0.30",       7 };
+static const struct GameVersion version_0023 = { "0.0.23a_01", 6, BLOCK_MAX_0020 };
+static const struct GameVersion version_0030 = { "0.30",       7, BLOCK_MAX_0030 };
+static const struct GameVersion version_cpe  = { "0.30",       7, BLOCK_MAX_CPE  };
 
 const char* const FpsLimit_Names[FPS_LIMIT_COUNT] = {
 	"LimitVSync", "Limit30FPS", "Limit60FPS", "Limit120FPS", "Limit144FPS", "LimitNone",
@@ -305,8 +306,12 @@ static void LoadOptions(void) {
 }
 
 static void LoadVersion(void) {
-	int version  = Options_GetInt(OPT_GAME_VERSION, 6, 7, 7);
-	Game_Version = version == 6 ? version6 : version7;
+	if (!Game_ClassicMode) {
+		Game_Version = version_cpe;
+	} else {
+		int version  = Options_GetInt(OPT_GAME_VERSION, 6, 7, 7);
+		Game_Version = version == 6 ? version_0023 : version_0030;
+	}
 }
 
 #ifdef CC_BUILD_MINFILES

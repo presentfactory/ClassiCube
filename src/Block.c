@@ -217,7 +217,8 @@ static const cc_string Block_DefaultName(BlockID block) {
 }
 
 void Block_ResetProps(BlockID block) {
-	const struct SimpleBlockDef* def = block < BLOCK_CPE_COUNT ? &core_blockDefs[block] : &invalid_blockDef;
+	const struct SimpleBlockDef* def = block <= Game_Version.MaxBlock 
+										? &core_blockDefs[block] : &invalid_blockDef;
 	const cc_string name = Block_DefaultName(block);
 
 	Blocks.BlocksLight[block] = def->blocksLight;
@@ -706,7 +707,6 @@ cc_bool AutoRotate_BlocksShareGroup(BlockID block, BlockID other) {
 /*########################################################################################################################*
 *----------------------------------------------------Blocks component-----------------------------------------------------*
 *#########################################################################################################################*/
-typedef struct _BlockLists BLOCKS;
 static void OnReset(void) {
 	int i, block;
 	for (i = 0; i < Array_Elems(definedCustomBlocks); i++) {

@@ -111,7 +111,7 @@ static const cc_uint8 v7_hotbar[INVENTORY_BLOCKS_PER_HOTBAR] = {
 static BlockID DefaultMapping(int slot) {
 	if (Game_ClassicMode) {
 		if (slot < inventory_size) return inventory_default[slot];
-	}else if (slot < BLOCK_MAX_CPE) {
+	} else if (slot < BLOCK_MAX_CPE) {
 		return (BlockID)(slot + 1);
 	}
 	return BLOCK_AIR;
@@ -126,7 +126,7 @@ void Inventory_ResetMapping(void) {
 
 void Inventory_AddDefault(BlockID block) {
 	int slot;
-	if (block >= BLOCK_CPE_COUNT) {
+	if (block > BLOCK_MAX_CPE) {
 		Inventory.Map[block - 1] = block; return;
 	}
 	

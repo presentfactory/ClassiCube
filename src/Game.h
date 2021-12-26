@@ -46,7 +46,7 @@ extern cc_bool Game_ScreenshotRequested;
 extern cc_bool Game_HideGui;
 extern cc_bool Game_DefaultZipMissing;
 
-struct GameVersion { const char* Name; cc_uint8 Protocol; };
+struct GameVersion { const char* Name; cc_uint8 Protocol, MaxBlock; };
 extern struct GameVersion Game_Version;
 
 enum FpsLimitMethod {
