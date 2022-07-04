@@ -364,26 +364,32 @@ static void CalcBlockLight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun
 		}
 		BlockID thisBlock = World_GetBlock(curNode.X, curNode.Y, curNode.Z);
 
+		// One lower than the current block light level, gaurenteed to never underflow as blocks with a
+		// light level of 0 will not be requested to be lit
+		cc_uint8 propigationBlockLight = curBlockLight - 1;
+
+		if (propigationBlockLight == 0) {
+			// Skip propigation if no light will be propigated
+			continue;
+		}
 
 		curNode.X--;
 		if (curNode.X > 0 &&
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_XMAX) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMIN) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
 		curNode.X += 2;
 		if (curNode.X < World.MaxX &&
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_XMIN) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMAX) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
@@ -391,23 +397,21 @@ static void CalcBlockLight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun
 
 		curNode.Y--;
 		if (curNode.Y > 0 &&
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_YMAX) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_YMIN) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
 		curNode.Y += 2;
 		if (curNode.Y < World.MaxY &&
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_YMIN) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_YMAX) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
@@ -415,23 +419,21 @@ static void CalcBlockLight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun
 
 		curNode.Z--;
 		if (curNode.Z > 0 &&
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_ZMAX) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_ZMIN) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
 		curNode.Z += 2;
 		if (curNode.Z < World.MaxZ &&
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_ZMIN) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_ZMAX) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
@@ -454,28 +456,38 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 		}
 		BlockID thisBlock = World_GetBlock(curNode.X, curNode.Y, curNode.Z);
 
+		// One lower than the current block light level, gaurenteed to never underflow as blocks with a
+		// light level of 0 will not be requested to be lit
+		cc_uint8 propigationBlockLight = curBlockLight - 1;
+
+		if (propigationBlockLight == 0) {
+			// Skip propigation if no light will be propigated
+			continue;
+		}
+
+		// The height will only change with respect to the X and Z axes, so cache this value for when
+		// only the Y coordinate is being offsetted.
+		int curBlockLightHeight = ClassicLighting_GetLightHeight(curNode.X, curNode.Z);
 
 		curNode.X--;
 		if (curNode.X > 0 &&
 			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_XMAX) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMIN) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
 		curNode.X += 2;
 		if (curNode.X < World.MaxX &&
 			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_XMIN) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMAX) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
@@ -483,25 +495,23 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 
 		curNode.Y--;
 		if (curNode.Y > 0 &&
-			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
-			curBlockLight - 1 > 0 &&
+			curNode.Y <= curBlockLightHeight && //don't propagate into full sunlight
 			CanLightPass(thisBlock, FACE_YMAX) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_YMIN) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
 		curNode.Y += 2;
 		if (curNode.Y < World.MaxY &&
-			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
-			curBlockLight - 1 > 0 &&
+			curNode.Y <= curBlockLightHeight && //don't propagate into full sunlight
 			CanLightPass(thisBlock, FACE_YMIN) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_YMAX) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
@@ -510,24 +520,22 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 		curNode.Z--;
 		if (curNode.Z > 0 &&
 			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_ZMAX) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_ZMIN) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
 		curNode.Z += 2;
 		if (curNode.Z < World.MaxZ &&
 			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
-			curBlockLight - 1 > 0 &&
 			CanLightPass(thisBlock, FACE_ZMIN) &&
 			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_ZMAX) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < curBlockLight - 1
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
 			) {
-			SetBlocklight(curBlockLight - 1, curNode.X, curNode.Y, curNode.Z, sun);
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
 			LightQueue_Enqueue(&lightQueue, entry);
 		}
