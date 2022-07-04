@@ -185,12 +185,28 @@ static PackedCol modernLighting_paletteZ[MODERN_LIGHTING_LEVELS * MODERN_LIGHTIN
 static PackedCol modernLighting_paletteY[MODERN_LIGHTING_LEVELS * MODERN_LIGHTING_LEVELS];
 
 typedef cc_uint8* LightingChunk;
-static cc_uint8* chunkLightingDataFlags;
-#define CHUNK_UNCALCULATED 0
-#define CHUNK_SELF_CALCULATED 1
-#define CHUNK_ALL_CALCULATED 2
+#define CHUNK_LIT_FLAGS (32)
+#define CHUNK_LIT_FLAG_MASK (CHUNK_LIT_FLAGS - 1)
+#define CHUNK_LIT_FLAG_SHIFT (5)
+/* Each lit flag occupies 1 bit of the 32 bit value, allowing for a smaller memory footprint and
+ * better cache hitrates ideally at the cost of some bit math */
+static cc_uint32* chunkLightingDataLitFlags;
 static LightingChunk* chunkLightingData;
 static cc_uint8 allDarkChunkLightingData[CHUNK_SIZE_3];
+
+static cc_bool ModernLighting_LitFlagGet(int chunkIndex) {
+	int packedFlagOffset = chunkIndex >> CHUNK_LIT_FLAG_SHIFT;
+	int packedFlagIndex = chunkIndex & CHUNK_LIT_FLAG_MASK;
+
+	return (chunkLightingDataLitFlags[packedFlagOffset] & ((cc_uint32)1 << packedFlagIndex)) != 0;
+}
+
+static void ModernLighting_LitFlagSet(int chunkIndex) {
+	int packedFlagOffset = chunkIndex >> CHUNK_LIT_FLAG_SHIFT;
+	int packedFlagIndex = chunkIndex & CHUNK_LIT_FLAG_MASK;
+
+	chunkLightingDataLitFlags[packedFlagOffset] |= ((cc_uint32)1 << packedFlagIndex);
+}
 
 #define Modern_MakePaletteIndex(sun, block) ((sun << MODERN_LIGHTING_SUN_SHIFT) | block)
 
@@ -259,7 +275,9 @@ static void ModernLighting_AllocState(void) {
 	ClassicLighting_AllocState();
 	ModernLighting_InitPalettes();
 
-	chunkLightingDataFlags = (cc_uint8*)Mem_TryAllocCleared(World.ChunksCount, sizeof(cc_uint8));
+	int roundedUpChunkLitFlagGroups = (World.ChunksCount + CHUNK_LIT_FLAGS - 1) >> CHUNK_LIT_FLAG_SHIFT;
+
+	chunkLightingDataLitFlags = (cc_uint32*)Mem_TryAllocCleared(roundedUpChunkLitFlagGroups, sizeof(cc_uint32));
 	chunkLightingData = (LightingChunk*)Mem_TryAllocCleared(World.ChunksCount, sizeof(LightingChunk));
 	LightQueue_Init(&lightQueue);
 
@@ -269,15 +287,15 @@ static void ModernLighting_FreeState(void) {
 	ClassicLighting_FreeState();
 	int i;
 	/* This function can be called multiple times without calling ModernLighting_AllocState, so... */
-	if (chunkLightingDataFlags == NULL) { return; }
+	if (chunkLightingDataLitFlags == NULL) { return; }
 
 	for (i = 0; i < World.ChunksCount; i++) {
-		if (chunkLightingDataFlags[i] > CHUNK_SELF_CALCULATED || chunkLightingDataFlags[i] == CHUNK_UNCALCULATED) { continue; }
+    /* No need to check for NULL, Mem_Free does this already */
 		Mem_Free(chunkLightingData[i]);
 	}
-	Mem_Free(chunkLightingDataFlags);
+	Mem_Free(chunkLightingDataLitFlags);
 	Mem_Free(chunkLightingData);
-	chunkLightingDataFlags = NULL;
+	chunkLightingDataLitFlags = NULL;
 	chunkLightingData = NULL;
 	LightQueue_Clear(&lightQueue);
 }
@@ -288,22 +306,16 @@ static void ModernLighting_FreeState(void) {
 #define LocalCoordsToIndex(lx, ly, lz) ((lx) | ((lz) << CHUNK_SHIFT) | ((ly) << (CHUNK_SHIFT * 2)))
 
 static void SetBlocklight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun) {
-	cc_uint8 clearMask;
 	cc_uint8 shift = sun ? MODERN_LIGHTING_SUN_SHIFT : 0;
+	/* 00001111 if sun, otherwise 11110000*/
+	cc_uint8 clearMask = ~(MODERN_LIGHTING_MAX_LEVEL << shift);
 
 	int cx = x >> CHUNK_SHIFT, lx = x & CHUNK_MASK;
 	int cy = y >> CHUNK_SHIFT, ly = y & CHUNK_MASK;
 	int cz = z >> CHUNK_SHIFT, lz = z & CHUNK_MASK;
 
 	int chunkIndex = ChunkCoordsToIndex(cx, cy, cz);
-	if (chunkLightingData[chunkIndex] == NULL) {
-		chunkLightingData[chunkIndex] = (cc_uint8*)Mem_TryAllocCleared(CHUNK_SIZE_3, sizeof(cc_uint8));
-	}
-
 	int localIndex = LocalCoordsToIndex(lx, ly, lz);
-
-	/* 00001111 if sun, otherwise 11110000*/
-	clearMask = ~(MODERN_LIGHTING_MAX_LEVEL << shift);
 
 	chunkLightingData[chunkIndex][localIndex] &= clearMask;
 	chunkLightingData[chunkIndex][localIndex] |= blockLight << shift;
@@ -314,7 +326,6 @@ static cc_uint8 GetBlocklight(int x, int y, int z, cc_bool sun) {
 	int cz = z >> CHUNK_SHIFT, lz = z & CHUNK_MASK;
 
 	int chunkIndex = ChunkCoordsToIndex(cx, cy, cz);
-	if (chunkLightingData[chunkIndex] == NULL) { return 0; }
 	int localIndex = LocalCoordsToIndex(lx, ly, lz);
 
 	return sun ?
@@ -523,7 +534,6 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 	}
 }
 
-
 static void CalculateChunkLightingSelf(int chunkIndex, int cx, int cy, int cz) {
 	int x, y, z;
 	int chunkStartX, chunkStartY, chunkStartZ; //world coords
@@ -538,9 +548,10 @@ static void CalculateChunkLightingSelf(int chunkIndex, int cx, int cy, int cz) {
 	if (chunkEndY > World.Height) { chunkEndY = World.Height; }
 	if (chunkEndZ > World.Length) { chunkEndZ = World.Length; }
 
-	//Platform_Log3("  calcing %i %i %i", &cx, &cy, &cz);
+  // Todo: Ensure that the chunk is not already lit (need an assert or something for that to check
+  // in debug mode only)
 
-	cc_string msg; char msgBuffer[STRING_SIZE * 2];
+	//Platform_Log3("  calcing %i %i %i", &cx, &cy, &cz);
 
 	for (y = chunkStartY; y < chunkEndY; y++) {
 		for (z = chunkStartZ; z < chunkEndZ; z++) {
@@ -558,9 +569,11 @@ static void CalculateChunkLightingSelf(int chunkIndex, int cx, int cy, int cz) {
 			}
 		}
 	}
-	chunkLightingDataFlags[chunkIndex] = CHUNK_SELF_CALCULATED;
+
+	ModernLighting_LitFlagSet(chunkIndex);
 }
-static void CalculateChunkLightingAll(int chunkIndex, int cx, int cy, int cz) {
+
+static void CalculateChunkLighting(int chunkIndex, int cx, int cy, int cz) {
 	int x, y, z;
 	int chunkStartX, chunkStartY, chunkStartZ; //chunk coords
 	int chunkEndX, chunkEndY, chunkEndZ; //chunk coords
@@ -579,8 +592,8 @@ static void CalculateChunkLightingAll(int chunkIndex, int cx, int cy, int cz) {
 	if (chunkEndY == World.ChunksY) { chunkEndY--; }
 	if (chunkEndZ == World.ChunksZ) { chunkEndZ--; }
 
-	cc_string msg; char msgBuffer[STRING_SIZE * 2];
-
+	// Allocate memory for the current and adjacent chunks if not done already (adjacent chunks needed
+	// as light may propigate up to 1 chunk away)
 	for (y = chunkStartY; y <= chunkEndY; y++) {
 		for (z = chunkStartZ; z <= chunkEndZ; z++) {
 			for (x = chunkStartX; x <= chunkEndX; x++) {
@@ -589,18 +602,12 @@ static void CalculateChunkLightingAll(int chunkIndex, int cx, int cy, int cz) {
 				if (chunkLightingData[curChunkIndex] == NULL) {
 					chunkLightingData[curChunkIndex] = (cc_uint8*)Mem_TryAllocCleared(CHUNK_SIZE_3, sizeof(cc_uint8));
 				}
-
-				if (chunkLightingDataFlags[curChunkIndex] == CHUNK_UNCALCULATED) {
-					CalculateChunkLightingSelf(curChunkIndex, x, y, z);
-				}
-				//String_InitArray(msg, msgBuffer);
-
-				//Chat_Add(&msg);
 			}
 		}
 	}
 
-	chunkLightingDataFlags[chunkIndex] = CHUNK_ALL_CALCULATED;
+	// Propigate lighting for all lights within this chunk
+	CalculateChunkLightingSelf(chunkIndex, cx, cy, cz);
 }
 
 static void ClassicLighting_LightHint(int startX, int startZ);
@@ -623,9 +630,10 @@ static PackedCol ModernLighting_Color_Core(int x, int y, int z, PackedCol* palet
 	int cz = z >> CHUNK_SHIFT, lz = z & CHUNK_MASK;
 
 	int chunkIndex = ChunkCoordsToIndex(cx, cy, cz);
-	if (chunkLightingDataFlags[chunkIndex] < CHUNK_ALL_CALCULATED) {
-		//Platform_Log3("CALC ALL: %i,%i,%i", &cx, &cy, &cz);
-		CalculateChunkLightingAll(chunkIndex, cx, cy, cz);
+
+	// Calculate lighting for the current chunk if needed
+	if (!ModernLighting_LitFlagGet(chunkIndex)) {
+		CalculateChunkLighting(chunkIndex, cx, cy, cz);
 	}
 
 	int localIndex = LocalCoordsToIndex(lx, ly, lz);
