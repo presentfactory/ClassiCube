@@ -13,10 +13,10 @@ extern struct IGameComponent Lighting_Component;
 /* Whether MC-style 16-level lighting should be used. */
 extern cc_bool Lighting_Modern;
 /* How many unique "levels" of light there are when modern lighting is used. */
-#define MODERN_LIGHTING_LEVELS 16
-#define MODERN_LIGHTING_MAX_LEVEL MODERN_LIGHTING_LEVELS - 1
+#define MODERN_LIGHTING_LEVELS (16)
+#define MODERN_LIGHTING_MAX_LEVEL (MODERN_LIGHTING_LEVELS - 1)
 /* How many bits to shift sunlight level to the left when storing it in a byte along with blocklight level*/
-#define MODERN_LIGHTING_SUN_SHIFT 4
+#define MODERN_LIGHTING_SUN_SHIFT (4)
 
 CC_VAR extern struct _Lighting {
 	/* Releases/Frees the per-level lighting state */

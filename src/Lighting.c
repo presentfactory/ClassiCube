@@ -175,11 +175,6 @@ static struct LightQueue lightQueue;
 /*########################################################################################################################*
 *----------------------------------------------------Modern lighting------------------------------------------------------*
 *#########################################################################################################################*/
-/* How many unique "levels" of light there are when modern lighting is used. */
-#define MODERN_LIGHTING_LEVELS 16
-#define MODERN_LIGHTING_MAX_LEVEL MODERN_LIGHTING_LEVELS - 1
-/* How many bits to shift sunlight level to the left when storing it in a byte along with blocklight level*/
-#define MODERN_LIGHTING_SUN_SHIFT 4
 
 /* A 16x16 palette of sun and block light colors. */
 /* It is indexed by a byte where the leftmost 4 bits represent sunlight level and the rightmost 4 bits represent blocklight level */
