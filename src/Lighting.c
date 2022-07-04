@@ -105,71 +105,59 @@ static void ClassicLighting_Refresh(void) {
 }
 
 /*########################################################################################################################*
-*----------------------------------------------------Queue thing ---------------------------------------------------------*
+*----------------------------------------------------Stack thing ---------------------------------------------------------*
 *#########################################################################################################################*/
 
-struct LightQueue {
-	IVec3* entries;     /* Buffer holding the items in the Block queue */
+struct LightStack {
+	IVec3* entries;     /* Buffer holding the items in the Light stack */
 	int capacity; /* Max number of elements in the buffer */
-	int mask;     /* capacity - 1, as capacity is always a power of two */
 	int count;    /* Number of used elements */
-	int head;     /* Head index into the buffer */
-	int tail;     /* Tail index into the buffer */
 };
-IVec3 LightQueue_EntryAtIndex(struct LightQueue* queue, int index) {
-	return queue->entries[(queue->head + index) & queue->mask];
+void LightStack_Init(struct LightStack* stack) {
+	stack->entries = NULL;
+	stack->capacity = 0;
+	stack->count = 0;
 }
-void LightQueue_Init(struct LightQueue* queue) {
-	queue->entries = NULL;
-	queue->capacity = 0;
-	queue->mask = 0;
-	queue->count = 0;
-	queue->head = 0;
-	queue->tail = 0;
+static void LightStack_Free(struct LightStack* stack) {
+	// No need to check entires for NULL, already checked by Mem_Free
+	Mem_Free(stack->entries);
 }
-static void LightQueue_Clear(struct LightQueue* queue) {
-	if (!queue->entries) return;
-	Mem_Free(queue->entries);
-	LightQueue_Init(queue);
+/* Clear all items by resetting count to zero. Does not shrink memory capacity or free. */
+static void LightStack_Clear(struct LightStack* stack) {
+	stack->count = 0;
 }
-static void LightQueue_Resize(struct LightQueue* queue) {
+static void LightStack_Resize(struct LightStack* stack) {
 	IVec3* entries;
-	int i, idx, capacity;
-	if (queue->capacity >= (Int32_MaxValue / 4)) {
-		Chat_AddRaw("&cToo many block queue entries, clearing");
-		LightQueue_Clear(queue);
+	int i, capacity;
+	if (stack->capacity >= (Int32_MaxValue / 4)) {
+		Chat_AddRaw("&cToo many light stack entries, clearing");
+		LightStack_Clear(stack);
 		return;
 	}
-	capacity = queue->capacity * 2;
+	capacity = stack->capacity * 2;
 	if (capacity < 32) capacity = 32;
-	entries = (IVec3*)Mem_Alloc(capacity, sizeof(IVec3), "Light queue");
-	for (i = 0; i < queue->count; i++) {
-		idx = (queue->head + i) & queue->mask;
-		entries[i] = queue->entries[idx];
+	entries = (IVec3*)Mem_Alloc(capacity, sizeof(IVec3), "Light stack");
+	for (i = 0; i < stack->count; i++) {
+		entries[i] = stack->entries[i];
 	}
-	Mem_Free(queue->entries);
-	queue->entries = entries;
-	queue->capacity = capacity;
-	queue->mask = capacity - 1; /* capacity is power of two */
-	queue->head = 0;
-	queue->tail = queue->count;
+	Mem_Free(stack->entries);
+	stack->entries = entries;
+	stack->capacity = capacity;
 }
-/* Appends an entry to the end of the queue, resizing if necessary. */
-void LightQueue_Enqueue(struct LightQueue* queue, IVec3 item) {
-	if (queue->count == queue->capacity)
-		LightQueue_Resize(queue);
-	queue->entries[queue->tail] = item;
-	queue->tail = (queue->tail + 1) & queue->mask;
-	queue->count++;
+/* Appends an entry to the stack, resizing if necessary. */
+void LightStack_Push(struct LightStack* stack, IVec3 item) {
+	if (stack->count == stack->capacity)
+		LightStack_Resize(stack);
+	stack->entries[stack->count] = item;
+	stack->count++;
 }
-/* Retrieves the entry from the front of the queue. */
-IVec3 LightQueue_Dequeue(struct LightQueue* queue) {
-	IVec3 result = queue->entries[queue->head];
-	queue->head = (queue->head + 1) & queue->mask;
-	queue->count--;
-	return result;
+/* Retrieves the entry from the stack. */
+IVec3 LightStack_Pop(struct LightStack* stack) {
+	// Todo: Assert here to ensure stack->count is >0
+	stack->count--;
+	return stack->entries[stack->count];
 }
-static struct LightQueue lightQueue;
+static struct LightStack lightStack;
 
 
 /*########################################################################################################################*
@@ -279,7 +267,7 @@ static void ModernLighting_AllocState(void) {
 
 	chunkLightingDataLitFlags = (cc_uint32*)Mem_TryAllocCleared(roundedUpChunkLitFlagGroups, sizeof(cc_uint32));
 	chunkLightingData = (LightingChunk*)Mem_TryAllocCleared(World.ChunksCount, sizeof(LightingChunk));
-	LightQueue_Init(&lightQueue);
+	LightStack_Init(&lightStack);
 
 }
 static void ClassicLighting_FreeState(void);
@@ -297,7 +285,7 @@ static void ModernLighting_FreeState(void) {
 	Mem_Free(chunkLightingData);
 	chunkLightingDataLitFlags = NULL;
 	chunkLightingData = NULL;
-	LightQueue_Clear(&lightQueue);
+	LightStack_Free(&lightStack);
 }
 
 /* Converts chunk x/y/z coordinates to the corresponding index in chunks array/list */
@@ -351,15 +339,15 @@ static void CalcBlockLight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun
 
 	SetBlocklight(blockLight, x, y, z, sun);
 	IVec3 entry = { x, y, z };
-	LightQueue_Enqueue(&lightQueue, entry);
+	LightStack_Push(&lightStack, entry);
 
 	//if (Blocks.BlocksLight[World_GetBlock(x, y, z)]) { return; }
 
-	while (lightQueue.count > 0) {
-		IVec3 curNode = LightQueue_Dequeue(&lightQueue);
+	while (lightStack.count > 0) {
+		IVec3 curNode = LightStack_Pop(&lightStack);
 		cc_uint8 curBlockLight = GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun);
 		if (curBlockLight <= 0) {
-			Platform_Log1("but there were still %i entries left...", &lightQueue.capacity);
+			Platform_Log1("but there were still %i entries left...", &lightStack.count);
 			return;
 		}
 		BlockID thisBlock = World_GetBlock(curNode.X, curNode.Y, curNode.Z);
@@ -373,27 +361,8 @@ static void CalcBlockLight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun
 			continue;
 		}
 
-		curNode.X--;
-		if (curNode.X > 0 &&
-			CanLightPass(thisBlock, FACE_XMAX) &&
-			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMIN) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
-			) {
-			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
-			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
-		}
-		curNode.X += 2;
-		if (curNode.X < World.MaxX &&
-			CanLightPass(thisBlock, FACE_XMIN) &&
-			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMAX) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
-			) {
-			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
-			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
-		}
-		curNode.X--;
+		// Neighbors visited in Y Z X order to prefer propigation on the X axis first, then Y, etc due
+		// to the reverse stack popping order.
 
 		curNode.Y--;
 		if (curNode.Y > 0 &&
@@ -403,7 +372,7 @@ static void CalcBlockLight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun
 			) {
 			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
+			LightStack_Push(&lightStack, entry);
 		}
 		curNode.Y += 2;
 		if (curNode.Y < World.MaxY &&
@@ -413,7 +382,7 @@ static void CalcBlockLight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun
 			) {
 			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
+			LightStack_Push(&lightStack, entry);
 		}
 		curNode.Y--;
 
@@ -425,7 +394,7 @@ static void CalcBlockLight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun
 			) {
 			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
+			LightStack_Push(&lightStack, entry);
 		}
 		curNode.Z += 2;
 		if (curNode.Z < World.MaxZ &&
@@ -435,7 +404,29 @@ static void CalcBlockLight(cc_uint8 blockLight, int x, int y, int z, cc_bool sun
 			) {
 			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
+			LightStack_Push(&lightStack, entry);
+		}
+		curNode.Z--;
+
+		curNode.X--;
+		if (curNode.X > 0 &&
+			CanLightPass(thisBlock, FACE_XMAX) &&
+			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMIN) &&
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
+			) {
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
+			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
+			LightStack_Push(&lightStack, entry);
+		}
+		curNode.X += 2;
+		if (curNode.X < World.MaxX &&
+			CanLightPass(thisBlock, FACE_XMIN) &&
+			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMAX) &&
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
+			) {
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
+			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
+			LightStack_Push(&lightStack, entry);
 		}
 	}
 }
@@ -443,15 +434,15 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 
 	SetBlocklight(blockLight, x, y, z, sun);
 	IVec3 entry = { x, y, z };
-	LightQueue_Enqueue(&lightQueue, entry);
+	LightStack_Push(&lightStack, entry);
 
 	//if (Blocks.BlocksLight[World_GetBlock(x, y, z)]) { return; }
 
-	while (lightQueue.count > 0) {
-		IVec3 curNode = LightQueue_Dequeue(&lightQueue);
+	while (lightStack.count > 0) {
+		IVec3 curNode = LightStack_Pop(&lightStack);
 		cc_uint8 curBlockLight = GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun);
 		if (curBlockLight <= 0) {
-			Platform_Log1("but there were still %i entries left...", &lightQueue.capacity);
+			Platform_Log1("but there were still %i entries left...", &lightStack.count);
 			return;
 		}
 		BlockID thisBlock = World_GetBlock(curNode.X, curNode.Y, curNode.Z);
@@ -469,29 +460,8 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 		// only the Y coordinate is being offsetted.
 		int curBlockLightHeight = ClassicLighting_GetLightHeight(curNode.X, curNode.Z);
 
-		curNode.X--;
-		if (curNode.X > 0 &&
-			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
-			CanLightPass(thisBlock, FACE_XMAX) &&
-			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMIN) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
-			) {
-			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
-			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
-		}
-		curNode.X += 2;
-		if (curNode.X < World.MaxX &&
-			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
-			CanLightPass(thisBlock, FACE_XMIN) &&
-			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMAX) &&
-			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
-			) {
-			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
-			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
-		}
-		curNode.X--;
+		// Neighbors visited in Y Z X order to prefer propigation on the X axis first, then Y, etc due
+		// to the reverse stack popping order.
 
 		curNode.Y--;
 		if (curNode.Y > 0 &&
@@ -502,7 +472,7 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 			) {
 			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
+			LightStack_Push(&lightStack, entry);
 		}
 		curNode.Y += 2;
 		if (curNode.Y < World.MaxY &&
@@ -513,7 +483,7 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 			) {
 			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
+			LightStack_Push(&lightStack, entry);
 		}
 		curNode.Y--;
 
@@ -526,7 +496,7 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 			) {
 			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
+			LightStack_Push(&lightStack, entry);
 		}
 		curNode.Z += 2;
 		if (curNode.Z < World.MaxZ &&
@@ -537,7 +507,31 @@ static void CalcBlockLightWithHackySunException(cc_uint8 blockLight, int x, int 
 			) {
 			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
 			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
-			LightQueue_Enqueue(&lightQueue, entry);
+			LightStack_Push(&lightStack, entry);
+		}
+		curNode.Z--;
+
+		curNode.X--;
+		if (curNode.X > 0 &&
+			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
+			CanLightPass(thisBlock, FACE_XMAX) &&
+			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMIN) &&
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
+			) {
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
+			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
+			LightStack_Push(&lightStack, entry);
+		}
+		curNode.X += 2;
+		if (curNode.X < World.MaxX &&
+			curNode.Y <= ClassicLighting_GetLightHeight(curNode.X, curNode.Z) && //don't propagate into full sunlight
+			CanLightPass(thisBlock, FACE_XMIN) &&
+			CanLightPass(World_GetBlock(curNode.X, curNode.Y, curNode.Z), FACE_XMAX) &&
+			GetBlocklight(curNode.X, curNode.Y, curNode.Z, sun) < propigationBlockLight
+			) {
+			SetBlocklight(propigationBlockLight, curNode.X, curNode.Y, curNode.Z, sun);
+			IVec3 entry = { curNode.X, curNode.Y, curNode.Z };
+			LightStack_Push(&lightStack, entry);
 		}
 	}
 }
